@@ -8,5 +8,6 @@ import androidx.room.PrimaryKey
 data class TopicEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
+    val isFolder: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 )

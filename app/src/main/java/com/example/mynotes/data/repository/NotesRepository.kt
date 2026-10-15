@@ -1,6 +1,3 @@
-// NotesRepository
-//
-
 package com.example.mynotes.data.repository
 
 import com.example.mynotes.data.local.*
@@ -15,8 +12,32 @@ class NotesRepository(
     fun getAllTopics(): Flow<List<TopicEntity>> = topicDao.getAllTopics()
     fun getTopicById(topicId: Long): Flow<TopicEntity?> = topicDao.getTopicById(topicId)
     suspend fun insertTopic(topic: TopicEntity) = topicDao.insertTopic(topic)
-    suspend fun updateTopic(topic: TopicEntity) = topicDao.updateTopic(topic)
+
+    suspend fun insertFolderTopic(name: String): Long {
+        return topicDao.insertTopic(TopicEntity(name = name, isFolder = true))
+    }
+
+    suspend fun insertDirectChatTopic(name: String): Long {
+        val topicId = topicDao.insertTopic(TopicEntity(name = name, isFolder = false))
+        subTopicDao.insertSubTopic(SubTopicEntity(topicId = topicId, name = name))
+        return topicId
+    }
+
+    suspend fun updateTopic(topic: TopicEntity) {
+        topicDao.updateTopic(topic)
+        if (!topic.isFolder) {
+            val subTopic = subTopicDao.getSubTopicByTopicId(topic.id)
+            if (subTopic != null) {
+                subTopicDao.updateSubTopic(subTopic.copy(name = topic.name))
+            }
+        }
+    }
+
     suspend fun deleteTopic(topic: TopicEntity) = topicDao.deleteTopic(topic)
+
+    suspend fun getSubTopicForDirectTopic(topicId: Long): SubTopicEntity? {
+        return subTopicDao.getSubTopicByTopicId(topicId)
+    }
 
     // SubTopics
     fun getSubTopics(topicId: Long): Flow<List<SubTopicEntity>> = subTopicDao.getSubTopicsByTopic(topicId)

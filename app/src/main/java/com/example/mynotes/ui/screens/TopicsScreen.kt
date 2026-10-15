@@ -1,37 +1,41 @@
 package com.example.mynotes.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mynotes.data.local.TopicEntity
 import com.example.mynotes.data.repository.NotesRepository
 import com.example.mynotes.ui.viewmodel.TopicsViewModel
 
+enum class CreationType { FOLDER, DIRECT_CHAT }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopicsScreen(
     repository: NotesRepository,
     onTopicClick: (Long) -> Unit,
+    onDirectChatClick: (Long) -> Unit,
     onSettingsClick: () -> Unit
 ) {
     val viewModel = remember { TopicsViewModel(repository) }
     val topics by viewModel.topics.collectAsStateWithLifecycle()
-    var showDialog by remember { mutableStateOf(false) }
+    var showTypeSelectionDialog by remember { mutableStateOf(false) }
+    var creationType by remember { mutableStateOf<CreationType?>(null) }
 
     Scaffold(
         topBar = {
@@ -49,7 +53,7 @@ fun TopicsScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showDialog = true },
+                onClick = { showTypeSelectionDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Добавить тему")
@@ -72,7 +76,15 @@ fun TopicsScreen(
                 items(topics) { topic ->
                     TopicItem(
                         topic = topic,
-                        onClick = { onTopicClick(topic.id) },
+                        onClick = {
+                            if (topic.isFolder) {
+                                onTopicClick(topic.id)
+                            } else {
+                                viewModel.openDirectChat(topic.id) { subTopicId ->
+                                    onDirectChatClick(subTopicId)
+                                }
+                            }
+                        },
                         onDelete = { viewModel.deleteTopic(topic) },
                         onRename = { newName -> viewModel.updateTopic(topic.copy(name = newName)) }
                     )
@@ -81,12 +93,27 @@ fun TopicsScreen(
         }
     }
 
-    if (showDialog) {
+    if (showTypeSelectionDialog) {
+        SelectCreationTypeDialog(
+            onDismiss = { showTypeSelectionDialog = false },
+            onSelectType = { type ->
+                showTypeSelectionDialog = false
+                creationType = type
+            }
+        )
+    }
+
+    creationType?.let { type ->
         CreateTopicDialog(
-            onDismiss = { showDialog = false },
+            type = type,
+            onDismiss = { creationType = null },
             onConfirm = { name ->
-                viewModel.addTopic(name)
-                showDialog = false
+                if (type == CreationType.FOLDER) {
+                    viewModel.addFolderTopic(name)
+                } else {
+                    viewModel.addDirectChatTopic(name)
+                }
+                creationType = null
             }
         )
     }
@@ -119,8 +146,24 @@ fun TopicItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(topic.name, style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = if (topic.isFolder) Icons.Default.Folder else Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = if (topic.isFolder) "Папка" else "Тема-чат",
+                    tint = if (topic.isFolder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+                )
+                Column {
+                    Text(topic.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (topic.isFolder) "Папка с темами" else "Тема-чат",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Box {
@@ -155,8 +198,15 @@ fun TopicItem(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Удалить тему?") },
-            text = { Text("Тема «${topic.name}» и все её подтемы и заметки будут удалены безвозвратно.") },
+            title = { Text(if (topic.isFolder) "Удалить папку?" else "Удалить тему?") },
+            text = {
+                Text(
+                    if (topic.isFolder)
+                        "Папка «${topic.name}» и все её подтемы и заметки будут удалены безвозвратно."
+                    else
+                        "Тема-чат «${topic.name}» и все её заметки будут удалены безвозвратно."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     onDelete()
@@ -176,12 +226,12 @@ fun TopicItem(
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Переименовать тему") },
+            title = { Text(if (topic.isFolder) "Переименовать папку" else "Переименовать тему") },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Название темы") },
+                    label = { Text("Название") },
                     singleLine = true
                 )
             },
@@ -205,16 +255,79 @@ fun TopicItem(
 }
 
 @Composable
-fun CreateTopicDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
+fun SelectCreationTypeDialog(
+    onDismiss: () -> Unit,
+    onSelectType: (CreationType) -> Unit
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новая тема") },
+        title = { Text("Что создать?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    onClick = { onSelectType(CreationType.FOLDER) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column {
+                            Text("Папка с темами", style = MaterialTheme.typography.titleMedium)
+                            Text("Содержит несколько подтем", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                Surface(
+                    onClick = { onSelectType(CreationType.DIRECT_CHAT) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                        Column {
+                            Text("Тема-чат", style = MaterialTheme.typography.titleMedium)
+                            Text("Отдельный чат для заметок", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
+}
+
+@Composable
+fun CreateTopicDialog(
+    type: CreationType,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val titleText = if (type == CreationType.FOLDER) "Новая папка" else "Новая тема-чат"
+    val labelText = if (type == CreationType.FOLDER) "Название папки" else "Название темы"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(titleText) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Название темы") },
+                label = { Text(labelText) },
                 singleLine = true
             )
         },

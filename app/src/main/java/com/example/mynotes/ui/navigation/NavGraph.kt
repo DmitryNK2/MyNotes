@@ -35,6 +35,9 @@ fun NavGraph(
                 onTopicClick = { topicId ->
                     navController.navigate(Screen.SubTopics.createRoute(topicId))
                 },
+                onDirectChatClick = { subTopicId ->
+                    navController.navigate(Screen.Chat.createRoute(subTopicId))
+                },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 }

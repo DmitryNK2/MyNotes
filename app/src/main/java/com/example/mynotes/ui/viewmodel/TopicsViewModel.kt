@@ -1,4 +1,3 @@
-// TopicsViewModel
 package com.example.mynotes.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
@@ -14,13 +13,27 @@ class TopicsViewModel(private val repository: NotesRepository) : ViewModel() {
     val topics = repository.getAllTopics()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun addTopic(name: String) {
+    fun addFolderTopic(name: String) {
         viewModelScope.launch {
-            repository.insertTopic(TopicEntity(name = name))
+            repository.insertFolderTopic(name)
         }
     }
 
-    // НОВЫЙ МЕТОД
+    fun addDirectChatTopic(name: String) {
+        viewModelScope.launch {
+            repository.insertDirectChatTopic(name)
+        }
+    }
+
+    fun openDirectChat(topicId: Long, onSubTopicFound: (Long) -> Unit) {
+        viewModelScope.launch {
+            val subTopic = repository.getSubTopicForDirectTopic(topicId)
+            if (subTopic != null) {
+                onSubTopicFound(subTopic.id)
+            }
+        }
+    }
+
     fun updateTopic(topic: TopicEntity) {
         viewModelScope.launch {
             repository.updateTopic(topic)
